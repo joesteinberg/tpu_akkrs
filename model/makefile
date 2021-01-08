@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -pedantic -fopenmp -mcmodel=medium -ffast-math -DHAVE_INLINE=1 -g -O3
+CFLAGS = -Wall -pedantic -mcmodel=medium -ffast-math -DHAVE_INLINE=1 -g -fopenmp -O3
 
 LDFLAGS = -fopenmp -lgsl -lgslcblas -lm -ldl -lgomp -g -O3
 
