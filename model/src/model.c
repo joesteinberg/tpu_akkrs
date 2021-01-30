@@ -545,39 +545,6 @@ void iterate_policies(int i, double * maxdiff, int imaxdiff[3])
 	{
 	  gex2[i][z][2] = 0;
 	}
-
-      // trade policy uncertainty
-      /*if(EV3[i][z][0]<
-	 pi*pow(xi[i],1.0-theta) + EV3[i][z][1] - kappa0[i])
-	{
-	  gex3[i][z][0] = 1;
-	}
-      else
-	{
-	  gex3[i][z][0] = 0;
-	}
-
-      if(EV3[i][z][0]<
-	 pi*pow(xi[i],1.0-theta) - kappa1[i] +
-	 rho0[i]*EV3[i][z][1] + (1.0-rho0[i])*EV3[i][z][2])
-	{
-	  gex3[i][z][1] = 1;
-	}
-      else
-	{
-	  gex3[i][z][1] = 0;
-	}
-	  
-      if(EV3[i][z][0]<
-	 pi - kappa1[i] +
-	 (1.0-rho1[i])*EV3[i][z][1] + rho1[i]*EV3[i][z][2])
-	{
-	  gex3[i][z][2] = 1;
-	}
-      else
-	{
-	  gex3[i][z][2] = 0;
-	  }*/
       
       // update continuation values and check convergence ---------------
       // pre-reform
@@ -655,7 +622,7 @@ void iterate_policies(int i, double * maxdiff, int imaxdiff[3])
 	  *maxdiff=diff0;
 	  imaxdiff[0]=z;
 	  imaxdiff[1]=0;
-	  imaxdiff[2] = 1;
+	  imaxdiff[2]=1;
 	}
 
       if(diff1>*maxdiff)
@@ -663,7 +630,7 @@ void iterate_policies(int i, double * maxdiff, int imaxdiff[3])
 	  *maxdiff=diff1;
 	  imaxdiff[0]=z;
 	  imaxdiff[1]=1;
-	  imaxdiff[2] = 1;
+	  imaxdiff[2]=1;
 	}
 	  
       if(diff2>*maxdiff)
@@ -671,7 +638,7 @@ void iterate_policies(int i, double * maxdiff, int imaxdiff[3])
 	  *maxdiff=diff2;
 	  imaxdiff[0]=z;
 	  imaxdiff[1]=2;
-	  imaxdiff[2] = 1;
+	  imaxdiff[2]=1;
 	}
 
       V2[i][z][0] = tmp0;
@@ -771,16 +738,20 @@ void iterate_policies_tpu(int i, int t, double * maxdiff, int imaxdiff[3])
 	 pi*pow(xi[i],1.0-theta) + EV3[i][z][1] - kappa0[i])
 	{
 	  if(t>=0)
-	    gex4[i][z][0][t] = 1;
-	  else
-	    gex3[i][z][0] = 1;
+	    {
+	      gex4[i][z][0][t] = 1;
+	    }
+
+	  gex3[i][z][0] = 1;
 	}
       else
 	{
 	  if(t>=0)
-	    gex4[i][z][0][t] = 0;
-	  else
-	    gex3[i][z][0] = 0;
+	    {
+	      gex4[i][z][0][t] = 0;
+	    }
+	  
+	  gex3[i][z][0] = 0;
 	}
 
       if(EV3[i][z][0]<
@@ -788,16 +759,20 @@ void iterate_policies_tpu(int i, int t, double * maxdiff, int imaxdiff[3])
 	 rho0[i]*EV3[i][z][1] + (1.0-rho0[i])*EV3[i][z][2])
 	{
 	  if(t>=0)
-	    gex4[i][z][1][t] = 1;
-	  else
-	    gex3[i][z][1] = 1;
+	    {
+	      gex4[i][z][1][t] = 1;
+	    }
+	  
+	  gex3[i][z][1] = 1;
 	}
       else
 	{
 	  if(t>=0)
-	    gex4[i][z][1][t] = 0;
-	  else
-	    gex3[i][z][1] = 0;
+	    {
+	      gex4[i][z][1][t] = 0;
+	    }
+	  
+	  gex3[i][z][1] = 0;
 	}
 	  
       if(EV3[i][z][0]<
@@ -805,16 +780,20 @@ void iterate_policies_tpu(int i, int t, double * maxdiff, int imaxdiff[3])
 	 (1.0-rho1[i])*EV3[i][z][1] + rho1[i]*EV3[i][z][2])
 	{
 	  if(t>=0)
-	    gex4[i][z][2][t] = 1;
-	  else
-	    gex3[i][z][2] = 1;
+	    {
+	      gex4[i][z][2][t] = 1;
+	    }
+
+	  gex3[i][z][2] = 1;
 	}
       else
 	{
 	  if(t>=0)
-	    gex4[i][z][2][t] = 0;
-	  else
-	    gex3[i][z][2] = 0;
+	    {
+	      gex4[i][z][2][t] = 0;
+	    }
+	  
+	  gex3[i][z][2] = 0;
 	}
       
       // update continuation values and check convergence ---------------
@@ -841,7 +820,7 @@ void iterate_policies_tpu(int i, int t, double * maxdiff, int imaxdiff[3])
 	  *maxdiff=diff0;
 	  imaxdiff[0]=z;
 	  imaxdiff[1]=0;
-	  imaxdiff[2]=1;
+	  imaxdiff[2]=0;
 	}
 
       if(diff1>*maxdiff)
@@ -849,7 +828,7 @@ void iterate_policies_tpu(int i, int t, double * maxdiff, int imaxdiff[3])
 	  *maxdiff=diff1;
 	  imaxdiff[0]=z;
 	  imaxdiff[1]=1;
-	  imaxdiff[2]=1;
+	  imaxdiff[2]=0;
 	}
 	  
       if(diff2>*maxdiff)
@@ -857,7 +836,7 @@ void iterate_policies_tpu(int i, int t, double * maxdiff, int imaxdiff[3])
 	  *maxdiff=diff2;
 	  imaxdiff[0]=z;
 	  imaxdiff[1]=2;
-	  imaxdiff[2]=1;
+	  imaxdiff[2]=0;
 	}
 
       V3[i][z][0] = tmp0;
