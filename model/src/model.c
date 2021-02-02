@@ -22,7 +22,7 @@
 #define NI 30 // number of industries
 #define NZ 201 // productivity shock grid size
 #define NT 100 // simulation length
-#define NU 20 // number of periods with uncertainty
+#define NU 21 // number of periods with uncertainty
 #define NS 100 // number of simulations
 #define NF 1000 // simulation population size
 
@@ -39,7 +39,7 @@ const double root_tol_rel = 1.0e-6;
 const double root_tol_abs = 1.0e-6;
 const double delta_deriv = 1.0e-9;
 const double delta_root = 1.0e-9;
-const double policy_tol_abs = 1.0e-8;
+const double policy_tol_abs = 1.0e-10;
 const int policy_max_iter = 2000;
 const double x_grid_ub_mult = 10.0;
 const double x_grid_exp = 1.0;
@@ -1254,37 +1254,60 @@ void create_panel_dataset(int reform_flag)
   time(&start);
 
   FILE * file = 0x0;
+  FILE * file2 = 0x0;
   if(reform_flag==0)
-    file = fopen("output/simul_no_tpu.csv","w");
+    {
+      file = fopen("output/simul_no_tpu.csv","w");
+      file2 = fopen("output/simul_agg_no_tpu.csv","w");
+    }
   else if(reform_flag==1)
-    file = fopen("output/simul_tpu.csv","w");
+    {
+      file = fopen("output/simul_tpu.csv","w");
+      file2 = fopen("output/simul_agg_tpu.csv","w");
+    }
   else if(reform_flag==2)
-    file = fopen("output/simul_tpu2.csv","w");
+    {
+      file = fopen("output/simul_tpu2.csv","w");
+      file2 = fopen("output/simul_agg_tpu2.csv","w");
+    }
 
   fprintf(file,"s,i,y,f,tau,tpu_exposure,v,entrant,incumbent,exit\n");
+  fprintf(file2,"s,i,y,tau,tpu_exposure,exports,num_exporters\n");
   for(int s=0; s<NS; s++)
     {
       for(int i=0; i<NI; i++)
 	{
-	  for(int f=0; f<NF; f++)
+	  if(!policy_solved_flag[i])
 	    {
 	      for(int t=NT-1; t<NT*2; t++)
 		{
-		  if(policy_solved_flag[i]==0 && v_sim[s][i][f][t]>1.0e-10)
+		  double exports = 0.0;
+		  int nf = 0;
+		  double tau_ = t>=NT ? tau2[i] : tau[i];
+	      
+		  for(int f=0; f<NF; f++)
 		    {
-		      int exit = v_sim[s][i][f][t+1]>1.0e-10;
-		      int entrant = v_sim[s][i][f][t-1]<0.0;
-		      int incumbent = 1-entrant;
-		      double tau_ = t>=NT ? tau2[i] : tau[i];
-		      fprintf(file,"%d,%s,%d,FIRM%d,%0.16f,%0.16f,%0.16f,%d,%d,%d\n",
-			      s,industry[i],t-(NT-1),f,tau_,tau[i]-tau2[i],v_sim[s][i][f][t],exit,entrant,incumbent);
+		      if(v_sim[s][i][f][t]>1.0e-10)
+			{
+			  nf += 1;
+			  exports += v_sim[s][i][f][t];
+		      
+			  int exit = v_sim[s][i][f][t+1]>1.0e-10;
+			  int entrant = v_sim[s][i][f][t-1]<0.0;
+			  int incumbent = 1-entrant;
+			  fprintf(file,"%d,%s,%d,FIRM%d,%0.16f,%0.16f,%0.16f,%d,%d,%d\n",
+				  s,industry[i],t-(NT-1),f,1.0+tau_,(1.0+tau[i])/(1.0+tau2[i]),v_sim[s][i][f][t],exit,entrant,incumbent);
+			}
 		    }
+		  fprintf(file2,"%d,%s,%d,%0.16f,%0.16f,%0.16f,%d\n",
+			  s,industry[i],t-(NT-1),1.0+tau_,(1.0+tau[i])/(1.0+tau2[i]),exports,nf);
 		}
 	    }
 	}
     }
 
   fclose(file);
+  fclose(file2);
 
   time(&stop);
 
