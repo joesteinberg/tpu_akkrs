@@ -45,12 +45,12 @@ const double root_tol_abs = 1.0e-6;
 const double delta_deriv = 1.0e-9;
 const double delta_root = 1.0e-9;
 const double policy_tol_abs = 1.0e-10;
-const int policy_max_iter = 2000;
+const int policy_max_iter = 20000;
 const double x_grid_ub_mult = 10.0;
 const double x_grid_exp = 1.0;
 const double tpu_prob_update_speed = 0.01;
 const double coeff_err_tol = 1.0e-3;
-const int max_cal_iter = 100;
+const int max_cal_iter = 150;
 
 // print verbose output y/n
 const int verbose=1;
@@ -259,6 +259,7 @@ double theta_hat = 0.0; // = (1/theta)*(theta/(theta-1))^(1-theta)
 double sig_z[NI] = {0.0}; // stochastic productivity dispersion
 double rho_z[NI] = {0.0}; // stochastic productivity persistence
 double mu_e[NI] = {0.0}; // new entrant productivity
+double kmult[NI] = {0.0}; // entry cost
 double kappa0[NI] = {0.0}; // entry cost
 double kappa1[NI] = {0.0}; // continuation cost
 double xi[NI] = {0.0}; // iceberg cost in high state
@@ -283,7 +284,8 @@ double tau_nntr[NI][NT] = {{0.0}}; // trade cost before liberaliztion
 //double pi_hat2[NI] = {0.0}; // theta_hat*tau_hat2
 double tpu_prob_temp[NT] = {0.0}; // probability of reform reverting
 double tpu_prob_perm[NT] = {0.0}; // probability of reform reverting
-  
+double tpu_trans_mat[3][3][NT] = {{{0.0}}};
+
 // discretization of productivity shock process
 void discretize_z(int i)
 {
@@ -358,11 +360,11 @@ void calc_death_probs(int i)
 
 // assigned parameters and initial guesses
 int init_params()
-{  
-  // initial guesses!!!
+{
+  // params constant to all industries
   W = 1.0;
   Q = 0.96;
-  theta = 4;
+  theta = 3.0;
   theta_hat = (1.0/theta) * pow(theta/(theta-1.0),1.0-theta);
 
   for(int i=0; i<NI; i++)
@@ -371,59 +373,22 @@ int init_params()
       delta1[i] = 0.02258301;
       sig_z[i] = 1.32;
       rho_z[i] =  0.65;
-
-      // theta=4
-      kappa0[i] = 0.24;
-      kappa1[i] = 0.18;
-      xi[i]=2.00541880064;
+      kmult[i] = 0.0;
       
-      // theta=4.5
-      //kappa0[i] = 0.2;
-      //kappa1[i] = 0.155;
-
-      // theta=5
-      //kappa0[i] = 0.175;
-      //kappa1[i] = 0.135;
-      //xi[i]=1.60541880064;
-      mu_e[i] = 1.34;
-      //xi[i] = 1.5;
-      rho0[i]=0.91571120;
-      rho1[i]=0.91571120;
+      // theta=3
+      kappa0[i] = 0.40;
+      kappa1[i] = 0.33;
+      xi[i] = 3.0;
+            
+      // mu_e[i] = 1.34;
+      mu_e[i] = 0.0;
+      rho0[i]=0.85;
+      rho1[i]=0.916;
+      //rho1[i]=0.91571120;
     }
-
-
-  FILE * file = fopen("output/tpuprobs.txt","r");
-  if(!file)
-    {
-      printf("Failed to open file with TPU prob guesses!\n");
-      return 1;
-    }
-  else
-    {
-      int got = 0;
-      for(int t=0; t<21; t++)
-	{
-	  got += fscanf(file,"%lf",&(tpu_prob_temp[t+t_reform]));
-	}
-      for(int t=0; t<21; t++)
-	{
-	  got += fscanf(file,"%lf",&(tpu_prob_perm[t+t_reform]));
-	}
-      fclose(file);
-      if(got != 42)
-	{
-	  printf("Failed to load TPU prob guesses!\n");
-	  return 1;
-	}
-    }
-  //expspace(0.04, 0.19, 21, 0.4, &(tpu_prob_temp[t_reform]));
-  //expspace(0.04, 0.19, 21, 0.4, &(tpu_prob_perm[t_reform]));
-  //reverse(&(tpu_prob_temp[t_reform]),21);
-  //reverse(&(tpu_prob_perm[t_reform]),21);
   
-  // set all destination-specific variables to mean values... we will use the
-  // array of destinations in parallelizing the calibration
-  file = fopen("../scripts/tariff_data2.csv","r");
+  // load tariff data
+  FILE * file = fopen("../scripts/tariff_data2.csv","r");
   if(!file)
     {
       printf("Failed to open file with tariff data!\n");
@@ -467,22 +432,64 @@ int init_params()
 	      tau_nntr[i][t] = tau_nntr[i][t-1];
 	    }
 	}
-
-      /*
-      for(int i=0; i<NI; i++)
-	{
-	  for(int t=0; t<NT; t++)
-	    {
-	      printf("%.3s %d %f %f\n",industry[i],t,tau_applied[i][t],tau_nntr[i][t]);
-	    }
-	    }*/
-      
-      return 0;
     }
+
+  // TPU process
+  //expspace(0.04, 0.19, 21, 0.4, &(tpu_prob_temp[t_reform]));
+  //expspace(0.04, 0.19, 21, 0.4, &(tpu_prob_perm[t_reform]));
+  //reverse(&(tpu_prob_temp[t_reform]),21);
+  //reverse(&(tpu_prob_perm[t_reform]),21);
+  file = fopen("output/tpuprobs_perm.txt","r");
+  if(!file)
+    {
+      printf("Failed to open file with TPU prob guesses!\n");
+      return 1;
+    }
+  else
+    {
+      int got = 0;
+      for(int t=0; t<21; t++)
+	{
+	  got += fscanf(file,"%lf",&(tpu_prob_perm[t+t_reform]));
+	}
+      fclose(file);
+      if(got != 21)
+	{
+	  printf("Failed to load TPU prob guesses!\n");
+	  return 1;
+	}
+    }
+
+  // 0: autarky
+  // 1: NNTR
+  // 2: MFN
+  for(int t=0; t<NT; t++)
+    {
+      double frac = (double)(t-t_reform)/ ((double)((2008-1971+1)-t_reform));
+      
+      tpu_trans_mat[0][0][t] = 1.0;
+      tpu_trans_mat[0][1][t] = 0.0;
+      tpu_trans_mat[0][2][t] = 0.0;
+      tpu_trans_mat[1][0][t] = 0.0;
+      tpu_trans_mat[1][1][t] = 0.9;
+      tpu_trans_mat[1][2][t] = 0.1;
+      tpu_trans_mat[2][0][t] = 0.0;
+
+      if(t<t_reform)
+	tpu_trans_mat[2][1][t] = 0.9;
+      else if(t<(2008-1971))
+	tpu_trans_mat[2][1][t] = 0.9 * (1.0-frac) + frac * 0.01;
+      else
+	tpu_trans_mat[2][1][t] = tpu_trans_mat[2][1][t-1];
+      
+      tpu_trans_mat[2][2][t] = 1.0-tpu_trans_mat[2][1][t];
+    }
+
+  return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// 3. Dynamic program
+// 3. Dynamic program: deterministic and temporary/permanent TPU
 ///////////////////////////////////////////////////////////////////////////////
 
 double V_pre80[NI][NZ][3] = {{{0.0}}}; // pre-1980 value function
@@ -512,19 +519,19 @@ void init_dp_objs()
     {
       for(int iz=0; iz<NZ; iz++)
 	{
-	  double pi_hat = theta_hat * pow(tau_applied[i][0],1.0-theta);
+	  double pi_hat = theta_hat * pow(tau_applied[i][0],-theta);
 	  V_pre80[i][iz][0] = 0.0;
 	  V_pre80[i][iz][1] = pi_hat*pow(xi[i],1.0-theta)*z_hat[i][iz]/Q;
 	  V_pre80[i][iz][2] = pi_hat*z_hat[i][iz]/Q;
 	  
-	  pi_hat = theta_hat * pow(tau_nntr[i][0],1.0-theta);
+	  pi_hat = theta_hat * pow(tau_nntr[i][0],-theta);
 	  V_nntr[i][iz][0] = 0.0;
 	  V_nntr[i][iz][1] = pi_hat*pow(xi[i],1.0-theta)*z_hat[i][iz]/Q;
 	  V_nntr[i][iz][2] = pi_hat*z_hat[i][iz]/Q;
 	  
 	  for(int t=0; t<NT; t++)
 	    {
-	      pi_hat = theta_hat * pow(tau_applied[i][t],1.0-theta);
+	      pi_hat = theta_hat * pow(tau_applied[i][t],-theta);
 	      V_ref_det[i][iz][0][t] = 0.0;
 	      V_ref_det[i][iz][1][t] = pi_hat*pow(xi[i],1.0-theta)*z_hat[i][iz]/Q;
 	      V_ref_det[i][iz][2][t] = pi_hat*z_hat[i][iz]/Q;
@@ -627,7 +634,7 @@ void iterate_policies_ss(int i, double * maxdiff, int imaxdiff[3])
       
       // update continuation values and check convergence ---------------
       // pre-reform
-      double pi = theta_hat * pow(tau_nntr[i][0],1.0-theta) *z_hat[i][z];     
+      double pi = theta_hat * pow(tau_nntr[i][0],-theta) *z_hat[i][z];     
       double tmp0 = fmax(EV_nntr[i][z][0], EV_nntr[i][z][1] - kappa0[i]);
       
       double tmp1 = pi*pow(xi[i],1.0-theta) +
@@ -671,7 +678,7 @@ void iterate_policies_ss(int i, double * maxdiff, int imaxdiff[3])
       V_nntr[i][z][2] = tmp2;
 
       // post-reform
-      pi = theta_hat * pow(tau_applied[i][0],1.0-theta) *z_hat[i][z];
+      pi = theta_hat * pow(tau_applied[i][0],-theta) *z_hat[i][z];
       tmp0 = fmax(EV_pre80[i][z][0], EV_pre80[i][z][1] - kappa0[i]);
       
       tmp1 = pi*pow(xi[i],1.0-theta) +
@@ -748,7 +755,7 @@ void iterate_policies_det(int i, int t, double * maxdiff, int imaxdiff[3])
   for(int z=0; z<NZ; z++)
     {
       // applied
-      if(EV_ref_det[i][z][0] < EV_ref_det[i][z][1] - kappa0[i])
+      if(EV_ref_det[i][z][0] < EV_ref_det[i][z][1] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{
 	  gex_ref_det[i][z][0][t] = 1;
 	}
@@ -758,7 +765,7 @@ void iterate_policies_det(int i, int t, double * maxdiff, int imaxdiff[3])
 	}
 
       if(EV_ref_det[i][z][0] <
-	 rho0[i]*EV_ref_det[i][z][1] + (1.0-rho0[i])*EV_ref_det[i][z][2] - kappa1[i])
+	 rho0[i]*EV_ref_det[i][z][1] + (1.0-rho0[i])*EV_ref_det[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{
 	  gex_ref_det[i][z][1][t] = 1;
 	}
@@ -768,7 +775,7 @@ void iterate_policies_det(int i, int t, double * maxdiff, int imaxdiff[3])
 	}
 	  
       if(EV_ref_det[i][z][0] <
-	 (1.0-rho1[i])*EV_ref_det[i][z][1] + rho1[i]*EV_ref_det[i][z][2] - kappa1[i])
+	 (1.0-rho1[i])*EV_ref_det[i][z][1] + rho1[i]*EV_ref_det[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{
 	  gex_ref_det[i][z][2][t] = 1;
 	}
@@ -778,16 +785,21 @@ void iterate_policies_det(int i, int t, double * maxdiff, int imaxdiff[3])
 	}
       
       // update continuation values and check convergence ---------------
-      double pi = theta_hat * pow(tau_applied[i][t],1.0-theta) *z_hat[i][z];
-      double tmp0 = fmax(EV_ref_det[i][z][0], EV_ref_det[i][z][1] - kappa0[i]);
+      double pi=0.0;
+      if(t<t_reform)
+	pi = theta_hat * pow(tau_nntr[i][t],-theta) *z_hat[i][z];
+      else
+	pi = theta_hat * pow(tau_applied[i][t],-theta) *z_hat[i][z];
+      
+      double tmp0 = fmax(EV_ref_det[i][z][0], EV_ref_det[i][z][1] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
       
       double tmp1 = pi*pow(xi[i],1.0-theta) +
 	fmax(EV_ref_det[i][z][0],
-	     rho0[i]*EV_ref_det[i][z][1] + (1.0-rho0[i])*EV_ref_det[i][z][2] - kappa1[i]);
+	     rho0[i]*EV_ref_det[i][z][1] + (1.0-rho0[i])*EV_ref_det[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
 
       double tmp2 = pi +
 	fmax(EV_ref_det[i][z][0],
-	     (1.0-rho1[i])*EV_ref_det[i][z][1] + rho1[i]*EV_ref_det[i][z][2] - kappa1[i]);
+	     (1.0-rho1[i])*EV_ref_det[i][z][1] + rho1[i]*EV_ref_det[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
 	  
       double diff0 = fabs(tmp0-V_ref_det[i][z][0][t]);
       double diff1 = fabs(tmp1-V_ref_det[i][z][1][t]);
@@ -863,7 +875,7 @@ int solve_policies(int i)
     }
 
   // now iterate backwards
-  for(int t=NT-2; t>=t_reform; t--)
+  for(int t=NT-2; t>=0; t--)
     {
       iterate_policies_det(i,t,&maxdiff,imaxdiff);
     }
@@ -933,7 +945,7 @@ void iterate_policies_tpu_temp(int i, int t)
   for(int z=0; z<NZ; z++)
     {
       // first compute policy functions -------------------
-      if(EV_ref_tpu_temp[i][z][0]< EV_ref_tpu_temp[i][z][1] - kappa0[i])
+      if(EV_ref_tpu_temp[i][z][0]< EV_ref_tpu_temp[i][z][1] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{
 	  gex_ref_tpu_temp[i][z][0][t] = 1;
 	}
@@ -943,7 +955,7 @@ void iterate_policies_tpu_temp(int i, int t)
 	}
 
       if(EV_ref_tpu_temp[i][z][0] <
-	 rho0[i]*EV_ref_tpu_temp[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_temp[i][z][2] - kappa1[i])
+	 rho0[i]*EV_ref_tpu_temp[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_temp[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{ 
 	  gex_ref_tpu_temp[i][z][1][t] = 1;
 	}
@@ -953,7 +965,7 @@ void iterate_policies_tpu_temp(int i, int t)
 	}
 	  
       if(EV_ref_tpu_temp[i][z][0]<
-	 (1.0-rho1[i])*EV_ref_tpu_temp[i][z][1] + rho1[i]*EV_ref_tpu_temp[i][z][2] - kappa1[i])
+	 (1.0-rho1[i])*EV_ref_tpu_temp[i][z][1] + rho1[i]*EV_ref_tpu_temp[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{
 	  gex_ref_tpu_temp[i][z][2][t] = 1;
 	}
@@ -963,17 +975,17 @@ void iterate_policies_tpu_temp(int i, int t)
 	}
       
       // update continuation values and check convergence ---------------
-      double pi = theta_hat * pow(tau_applied[i][t],1.0-theta) *z_hat[i][z];
+      double pi = theta_hat * pow(tau_applied[i][t],-theta) *z_hat[i][z];
       
-      double tmp0 = fmax(EV_ref_tpu_temp[i][z][0], EV_ref_tpu_temp[i][z][1] - kappa0[i]);
+      double tmp0 = fmax(EV_ref_tpu_temp[i][z][0], EV_ref_tpu_temp[i][z][1] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
 	  
       double tmp1 = pi*pow(xi[i],1.0-theta) +
 	fmax(EV_ref_tpu_temp[i][z][0],
-	     rho0[i]*EV_ref_tpu_temp[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_temp[i][z][2] - kappa0[i]);
+	     rho0[i]*EV_ref_tpu_temp[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_temp[i][z][2] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
 
       double tmp2 = pi +
 	fmax(EV_ref_tpu_temp[i][z][0],		       
-	     (1.0-rho1[i])*EV_ref_tpu_temp[i][z][1] + rho1[i]*EV_ref_tpu_temp[i][z][2] - kappa0[i]);
+	     (1.0-rho1[i])*EV_ref_tpu_temp[i][z][1] + rho1[i]*EV_ref_tpu_temp[i][z][2] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
 
       V_ref_tpu_temp[i][z][0][t] = tmp0;
       V_ref_tpu_temp[i][z][1][t] = tmp1;
@@ -1014,7 +1026,7 @@ void iterate_policies_tpu_perm(int i, int t, double prob, double * maxdiff, int 
   for(int z=0; z<NZ; z++)
     {
       // first compute policy functions -------------------
-      if(EV_ref_tpu_perm[i][z][0]< EV_ref_tpu_perm[i][z][1] - kappa0[i])
+      if(EV_ref_tpu_perm[i][z][0]< EV_ref_tpu_perm[i][z][1] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{
 	  gex_ref_tpu_perm[i][z][0][t] = 1;
 	}
@@ -1024,7 +1036,7 @@ void iterate_policies_tpu_perm(int i, int t, double prob, double * maxdiff, int 
 	}
 
       if(EV_ref_tpu_perm[i][z][0] <
-	 rho0[i]*EV_ref_tpu_perm[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_perm[i][z][2] - kappa1[i])
+	 rho0[i]*EV_ref_tpu_perm[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_perm[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{ 
 	  gex_ref_tpu_perm[i][z][1][t] = 1;
 	}
@@ -1034,7 +1046,7 @@ void iterate_policies_tpu_perm(int i, int t, double prob, double * maxdiff, int 
 	}
 	  
       if(EV_ref_tpu_perm[i][z][0]<
-	 (1.0-rho1[i])*EV_ref_tpu_perm[i][z][1] + rho1[i]*EV_ref_tpu_perm[i][z][2] - kappa1[i])
+	 (1.0-rho1[i])*EV_ref_tpu_perm[i][z][1] + rho1[i]*EV_ref_tpu_perm[i][z][2] - kappa1[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)))
 	{
 	  gex_ref_tpu_perm[i][z][2][t] = 1;
 	}
@@ -1045,17 +1057,17 @@ void iterate_policies_tpu_perm(int i, int t, double prob, double * maxdiff, int 
 
       
       // update continuation values and check convergence ---------------
-      double pi = theta_hat * pow(tau_applied[i][t],1.0-theta) *z_hat[i][z];
+      double pi = theta_hat * pow(tau_applied[i][t],-theta) *z_hat[i][z];
      
-      double tmp0 = fmax(EV_ref_tpu_perm[i][z][0], EV_ref_tpu_perm[i][z][1] - kappa0[i]);
-	  
+      double tmp0 = fmax(EV_ref_tpu_perm[i][z][0], EV_ref_tpu_perm[i][z][1] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
+      
       double tmp1 = pi*pow(xi[i],1.0-theta) +
 	fmax(EV_ref_tpu_perm[i][z][0],
-	     rho0[i]*EV_ref_tpu_perm[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_perm[i][z][2] - kappa0[i]);
+	     rho0[i]*EV_ref_tpu_perm[i][z][1] + (1.0-rho0[i])*EV_ref_tpu_perm[i][z][2] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
 
       double tmp2 = pi +
 	fmax(EV_ref_tpu_perm[i][z][0],		       
-	     (1.0-rho1[i])*EV_ref_tpu_perm[i][z][1] + rho1[i]*EV_ref_tpu_perm[i][z][2] - kappa0[i]);
+	     (1.0-rho1[i])*EV_ref_tpu_perm[i][z][1] + rho1[i]*EV_ref_tpu_perm[i][z][2] - kappa0[i]*(1.0+kmult[i]*(tau_applied[i][t]/tau_applied[i][NT-1]-1.0)));
       
       double diff0 = fabs(tmp0-V_ref_tpu_perm[i][z][0][t]);
       double diff1 = fabs(tmp1-V_ref_tpu_perm[i][z][1][t]);
@@ -1093,7 +1105,8 @@ void iterate_policies_tpu_perm(int i, int t, double prob, double * maxdiff, int 
 
 // solve policy function for industry i in temporary TPU transition period
 int solve_policies_tpu(int i)
-{ 
+{
+  /*
   // temporary TPU value function: no need to converge anything, just iterate a few times
   for(int z=0; z<NZ; z++)
     {
@@ -1106,6 +1119,7 @@ int solve_policies_tpu(int i)
     {
       iterate_policies_tpu_temp(i,t);
     }
+  */
 
   // permanent TPU is more complicated...
   /// for each period t until WTO accession...
@@ -1183,10 +1197,255 @@ int solve_policies2_tpu()
   return 0;  
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// 4. Dynamic program: Markov process
+///////////////////////////////////////////////////////////////////////////////
+
+double V_markov_3[NI][NZ][3][3][NT] = {{{{{0.0}}}}}; // Markov process
+double EV_markov_3[NI][NZ][3][3] = {{{{0.0}}}}; // Markov process
+int gex_markov_3[NI][NZ][3][3][NT] = {{{{{0}}}}}; // Markov process
+
+// initial guess for value functions
+void init_dp_objs_markov()
+{
+  for(int i=0; i<NI; i++)
+    {
+      for(int iz=0; iz<NZ; iz++)
+	{
+	  double pi_hat = theta_hat * pow(tau_applied[i][NT-1],-theta);
+	  V_markov_3[i][iz][0][2][NT-1] = 0.0;
+	  V_markov_3[i][iz][1][2][NT-1] = pi_hat*pow(xi[i],1.0-theta)*z_hat[i][iz]/Q;
+	  V_markov_3[i][iz][2][2][NT-1] = pi_hat*z_hat[i][iz]/Q;
+	  
+	  pi_hat = theta_hat * pow(tau_nntr[i][NT-1],-theta);
+	  V_markov_3[i][iz][0][1][NT-1] = 0.0;
+	  V_markov_3[i][iz][1][1][NT-1] = pi_hat*pow(xi[i],1.0-theta)*z_hat[i][iz]/Q;
+	  V_markov_3[i][iz][2][1][NT-1] = pi_hat*z_hat[i][iz]/Q;
+
+	  V_markov_3[i][iz][0][0][NT-1] = 0.0;
+	  V_markov_3[i][iz][1][0][NT-1] = pi_hat*pow(xi[i],1.0-theta)*z_hat[i][iz]/Q;
+	  V_markov_3[i][iz][2][0][NT-1] = pi_hat*z_hat[i][iz]/Q;
+	}
+    }
+}
+
+// steady state Bellman
+void calc_EV_markov(int i, int t)
+{
+    for(int z=0; z<NZ; z++)
+    {
+      for(int e=0; e<3; e++)
+	{
+	  for(int p=0; p<3; p++)
+	    {
+	      EV_markov_3[i][z][e][p]=0.0;
+	      for(int zp=0; zp<NZ; zp++)
+		{
+		  if(z_trans_probs[i][z][zp]>1.0e-11)
+		    {
+		      for(int pp=0; pp<3; pp++)
+			{
+			  EV_markov_3[i][z][e][p] += Q*delta[i][z]*V_markov_3[i][zp][e][pp][t]*z_trans_probs[i][z][zp]*tpu_trans_mat[p][pp][t];
+			}
+		    }
+		}
+	    }
+	} 
+    }
+
+}
+
+void iterate_policies_markov(int i, int t, double * maxdiff, int imaxdiff[3])
+{
+  *maxdiff=-HUGE_VAL;
+
+  if(t==NT-1)
+    calc_EV_markov(i,t);
+  else
+    calc_EV_markov(i,t+1);
+    
+  
+  for(int z=0; z<NZ; z++)
+    {
+      // first compute policy functions -------------------
+      
+      // autarky = 0
+      gex_markov_3[i][z][0][0][t] = 0;
+      gex_markov_3[i][z][1][0][t] = 0;
+      gex_markov_3[i][z][2][0][t] = 0;
+
+      // NNTR = 1, MFN = 2
+      for(int p=1; p<3; p++)
+	{
+	  if(EV_markov_3[i][z][0][p] < EV_markov_3[i][z][1][p] - kappa0[i])
+	    {
+	      gex_markov_3[i][z][0][p][t] = 1;
+	    }
+	  else
+	    {
+	      gex_markov_3[i][z][0][p][t] = 0;
+	    }
+
+	  if(EV_markov_3[i][z][0][p] <
+	     rho0[i]*EV_markov_3[i][z][1][p] + (1.0-rho0[i])*EV_markov_3[i][z][2][p] - kappa1[i])
+	    {
+	      gex_markov_3[i][z][1][p][t] = 1;
+	    }
+	  else
+	    {
+	      gex_markov_3[i][z][1][p][t] = 0;
+	    }
+	  
+	  if(EV_markov_3[i][z][0][p] <
+	     (1.0-rho1[i])*EV_markov_3[i][z][1][p] + rho1[i]*EV_markov_3[i][z][2][p] - kappa1[i])
+	    {
+	      gex_markov_3[i][z][2][p][t] = 1;
+	    }
+	  else
+	    {
+	      gex_markov_3[i][z][2][p][t] = 0;
+	    }
+	}
+      
+      // update continuation values and check convergence ---------------
+
+      // autarky
+      for(int p=0; p<3; p++)
+	{
+	  double tmp0=0.0;
+	  double tmp1=0.0;
+	  double tmp2=0.0;
+
+	  if(p==0)
+	    {
+	      tmp0 = EV_markov_3[i][z][0][0];
+	      tmp1 = EV_markov_3[i][z][1][0];
+	      tmp2 = EV_markov_3[i][z][2][0];
+	    }
+	  else
+	    {
+	      double pi = 0.0;
+	      if(p==1)
+		pi = theta_hat * pow(tau_nntr[i][t],-theta) *z_hat[i][z];
+	      else if(t<t_reform)
+		pi = theta_hat * pow(tau_applied[i][t_reform],-theta) *z_hat[i][z];
+	      else
+		pi = theta_hat * pow(tau_applied[i][t],-theta) *z_hat[i][z];
+		
+
+	      tmp0 = fmax(EV_markov_3[i][z][0][p], EV_markov_3[i][z][1][p] - kappa0[i]);
+      
+	      tmp1 = pi*pow(xi[i],1.0-theta) +
+		fmax(EV_markov_3[i][z][0][p],
+		     rho0[i]*EV_markov_3[i][z][1][p] + (1.0-rho0[i])*EV_markov_3[i][z][2][p] - kappa1[i]);
+
+	      tmp2 = pi +
+		fmax(EV_markov_3[i][z][0][p],
+		     (1.0-rho1[i])*EV_markov_3[i][z][1][p] + rho1[i]*EV_markov_3[i][z][2][p] - kappa1[i]);
+	    }
+	  
+	  double diff0 = fabs(tmp0-V_markov_3[i][z][0][p][t]);
+	  double diff1 = fabs(tmp1-V_markov_3[i][z][1][p][t]);
+	  double diff2 = fabs(tmp2-V_markov_3[i][z][2][p][t]);
+
+	  if(diff0>*maxdiff)
+	    {
+	      *maxdiff=diff0;
+	      imaxdiff[0]=z;
+	      imaxdiff[1]=0;
+	      imaxdiff[2]=0;
+	    }
+	  
+	  if(diff1>*maxdiff)
+	    {
+	      *maxdiff=diff1;
+	      imaxdiff[0]=z;
+	      imaxdiff[1]=1;
+	      imaxdiff[2]=0;
+	    }
+	  
+	  if(diff2>*maxdiff)
+	    {
+	      *maxdiff=diff2;
+	      imaxdiff[0]=z;
+	      imaxdiff[1]=2;
+	      imaxdiff[2]=0;
+	    }
+
+	  V_markov_3[i][z][0][p][t] = tmp0;
+	  V_markov_3[i][z][1][p][t] = tmp1;
+	  V_markov_3[i][z][2][p][t] = tmp2;
+	}
+    }
+}
+
+// solve policy function for industry i
+int solve_policies_markov(int i)
+{
+  init_dp_objs_markov(i);
+
+  double maxdiff = 999;
+  int imaxdiff[3];
+
+  // first do SS policies for pre-1980 and NNTR rates
+  int iter=0;
+  do
+    {
+      iter++;
+      iterate_policies_markov(i,NT-1,&maxdiff,imaxdiff);
+    }
+  while(maxdiff>policy_tol_abs && iter < policy_max_iter);
+
+  if(iter==policy_max_iter)
+    {
+      printf("\tValue function iteration failed for industry %d! Diff = %0.4g\n",
+	     i,maxdiff);
+      return 1;
+    }
+
+  // now iterate backwards
+  for(int t=NT-2; t>=0; t--)
+    {
+      iterate_policies_markov(i,t,&maxdiff,imaxdiff);
+    }
+
+  return 0;
+
+}
+
+// solve policies for all industries in parallel
+int solve_policies2_markov()
+{
+  if(verbose)
+    printf("\nSolving dynamic program...\n");
+
+  time_t start, stop;
+  time(&start);
+
+  int cnt=0;
+  
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+  for(int i=0; i<NI; i++)
+    {
+      policy_solved_flag[i] = solve_policies_markov(i);
+      cnt += policy_solved_flag[i];
+    }
+
+  time(&stop);
+  
+  if(verbose)
+    {
+      printf("Finished dynamic programs in %0.0f seconds. %d failed to converge.\n",difftime(stop,start),cnt);
+    }
+  
+  return 0;  
+}
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// 4. Simulation
+// 5. Simulation
 ///////////////////////////////////////////////////////////////////////////////
 
 // storage for simulated data
@@ -1252,7 +1511,10 @@ void simul(int s, int i, int reform_flag)
       for(int t=0; t<NT; t++)
 	{
 	  // determine which profit multiplier to use depending on the time period
-	  double tau_hat_ = pow(tau_applied[i][t],1.0-theta);
+	  double tau_hat_ = pow(tau_applied[i][t],-theta);
+	  //if(reform_flag==3 && t<t_reform)
+	  if(t<t_reform || reform_flag==2)
+	    tau_hat_ = pow(tau_nntr[i][t],-theta);
 	  
 	  if(e==0) // if it is currently a non-exporter
 	    {
@@ -1276,27 +1538,40 @@ void simul(int s, int i, int reform_flag)
 
 	  // determine which policy function to use depending on the time period and reform flag
 	  int gex_=0;
+	  
 	  if(t>=t_wto) // if we are after wto accession, always use the deterministic policy function
 	    {
-	      gex_ = gex_ref_det[i][z][e][t];
+	      if(reform_flag == 2)
+		gex_ = gex_nntr[i][z][e];
+	      else if(reform_flag<3)
+		gex_ = gex_ref_det[i][z][e][t];
+	      else
+		gex_ = gex_markov_3[i][z][e][2][t];
+		//gex_ = gex_ref_det[i][z][e][t];
 	    }
 	  else if(t<t_reform) // if we are before the 1980 reform, use the pre-MIT shock policy
 	    {
-	      gex_ = gex_pre80[i][z][e];
+	      if(reform_flag==0)
+		gex_ = gex_ref_det[i][z][e][t];
+	      else if(reform_flag<3)
+		//gex_ = gex_pre80[i][z][e];
+		gex_ = gex_nntr[i][z][e];
+	      else
+		gex_ = gex_markov_3[i][z][e][1][t];
 	    }
 	  else
 	    {// otherwise it depends on which scenarion we are using
-	      if(reform_flag==0) // no TPU
+	      if(reform_flag==0 || reform_flag==1) // no TPU
 		{
 		  gex_ = gex_ref_det[i][z][e][t];
 		}
-	      else if(reform_flag==1) // firms believe TPU is temporary
+	      else if(reform_flag == 2)
 		{
-		  gex_ = gex_ref_tpu_temp[i][z][e][t];
+		  gex_ = gex_nntr[i][z][e];
 		}
-	      else if(reform_flag==2) // firms believe TPU is permanent
+	      else if(reform_flag==3)
 		{
-		  gex_ = gex_ref_tpu_perm[i][z][e][t];
+		  gex_ = gex_markov_3[i][z][e][2][t];
 		}
 	    }
 
@@ -1371,14 +1646,17 @@ void simul2(int reform_flag,
 	    double *avg_expart_rate,
 	    double *avg_exit_rate,
 	    double *avg_new_size,
+	    double *avg_5yr_gr,
 	    int calc_moments)
 {
   if(verbose && reform_flag==0)
-    printf("\nDoing simulations without TPU...\n");
+    printf("\nDeterministic simulation where entire path of tariffs is anticipated...\n");
   else if(verbose && reform_flag==1)
-    printf("\nDoing simulations with temporary TPU...\n");
+    printf("\nDeterministic simulation where 1980 reform is unanticipated...\n");
   else if(verbose && reform_flag==2)
-    printf("\nDoing simulations with permanent TPU...\n");
+    printf("\nDeterministic simulation where 1980 reform never occurs...\n");
+  else if(verbose && reform_flag==3)
+    printf("\nSimulation with Markov process for TPU...\n");
 
   time_t start, stop;
   time(&start);
@@ -1404,8 +1682,10 @@ void simul2(int reform_flag,
       *avg_expart_rate=0.0;
       *avg_exit_rate=0.0;
       *avg_new_size=0.0;
+      *avg_5yr_gr=0.0;
       int num_sims_exit=0;
       int num_sims_newsize=0;
+      int num_sims_5yr=0;
   
       for(int s=0; s<NS; s++)
 	{
@@ -1414,9 +1694,12 @@ void simul2(int reform_flag,
 	  int num_exits=0;
 	  int num_new_exporters=0;
 	  //int num_incumbents=0;
-
+	  int num_5yr = 0.0;
+	  
 	  double newsize=0.0;
 	  double meansize=0.0;
+	  double mean5yr=0.0;
+	  double mean1yr=0.0;
       
 	  for(int i=0; i<NI; i++)
 	    {
@@ -1439,6 +1722,18 @@ void simul2(int reform_flag,
 			    {
 			      num_new_exporters += 1;
 			      newsize += v_sim[s][i][f][t];
+			    }
+
+			  if(t>=5
+			     && v_sim[s][i][f][t-1]>1.0e-10
+			     && v_sim[s][i][f][t-2]>1.0e-10
+			     && v_sim[s][i][f][t-3]>1.0e-10
+			     && v_sim[s][i][f][t-4]>1.0e-10
+			     && v_sim[s][i][f][t-5]<0.0)
+			    {
+			      num_5yr +=1;
+			      mean5yr += v_sim[s][i][f][t];
+			      mean1yr += v_sim[s][i][f][t-4];
 			    }
 			  /*else
 			    {
@@ -1464,11 +1759,18 @@ void simul2(int reform_flag,
 	      num_sims_newsize += 1;
 	    }
 
+	  if(num_5yr>0)
+	    {
+	      *avg_5yr_gr  += (mean5yr/mean1yr);
+	      num_sims_5yr += 1;
+	    }
+
 	}
   
       *avg_expart_rate = *avg_expart_rate/((double)(NS));
       *avg_exit_rate = *avg_exit_rate/((double)(num_sims_exit));
       *avg_new_size  = *avg_new_size/((double)(num_sims_newsize));
+      *avg_5yr_gr  = *avg_5yr_gr/((double)(num_sims_5yr));
     }
 
 	
@@ -1479,8 +1781,8 @@ void simul2(int reform_flag,
       printf("Finished simulations in %0.0f seconds.\n",difftime(stop,start));
       if(calc_moments)
 	{
-	  printf("\tExport part. rate = %0.8f (22.3)\n\tExit rate = %0.8f (17.0)\n\tNew exporter relative size = %0.8f (0.5)\n",
-		 100*(*avg_expart_rate),100*(*avg_exit_rate),*avg_new_size);
+	  printf("\tExport part. rate = %0.8f (22.3)\n\tExit rate = %0.8f (17.0)\n\tNew exporter relative size = %0.8f (0.5)\n\tAvg. 5-yr growth = %0.8f (2.0)\n",
+		 100*(*avg_expart_rate),100*(*avg_exit_rate),*avg_new_size,*avg_5yr_gr);
 	}
     }
     
@@ -1490,35 +1792,29 @@ void simul2(int reform_flag,
 // create panel dataset from simulation
 void create_panel_dataset(int reform_flag)
 {
-  if(verbose && reform_flag==0)
-    printf("Creating panel dataset from simulation without TPU...\n");
-  else if(verbose && reform_flag==1)
-    printf("Creating panel dataset from simulation with temporary TPU...\n");
-  else if(verbose && reform_flag==2)
-    printf("Creating panel dataset from simulation with permanent TPU ...\n");
+  printf("Creating panel dataset from simulation %d...\n",reform_flag);
 
   time_t start, stop;
   time(&start);
 
-  //FILE * file = 0x0;
-  FILE * file2 = 0x0;
+   FILE * file2 = 0x0;
   if(reform_flag==0)
     {
-      //file = fopen("output/simul_no_tpu.csv","w");
-      file2 = fopen("output/simul_agg_no_tpu.csv","w");
+      file2 = fopen("output/simul_agg_det0.csv","w");
     }
   else if(reform_flag==1)
     {
-      //file = fopen("output/simul_tpu_temp.csv","w");
-      file2 = fopen("output/simul_agg_tpu_temp.csv","w");
+      file2 = fopen("output/simul_agg_det1.csv","w");
     }
   else if(reform_flag==2)
     {
-      //file = fopen("output/simul_tpu_perm.csv","w");
-      file2 = fopen("output/simul_agg_tpu_perm.csv","w");
+      file2 = fopen("output/simul_agg_det2.csv","w");
+    }
+  else if(reform_flag==3)
+    {
+      file2 = fopen("output/simul_agg_tpu_markov.csv","w");
     }
 
-  //fprintf(file,"s,i,y,f,tau_applied,tau_nntr,v,entrant,incumbent,exit\n");
   fprintf(file2,"s,i,y,tau_applied,tau_nntr,exports,num_exporters,exits,entries\n");
   for(int s=0; s<NS; s++)
     {
@@ -1550,11 +1846,7 @@ void create_panel_dataset(int reform_flag)
 			  
 			  int entrant = (t>1 && v_sim[s][i][f][t-1]<0.0);
 			  entrant2 += entrant;
-			  
-			  //int incumbent = 1-entrant;
-			  //fprintf(file,"%d,%s,%d,FIRM%d,%0.16f,%0.16f,%0.16f,%d,%d,%d\n",
-			  //	  s,industry[i],t,f,tau_applied[i][t],tau_nntr[i][t],v_sim[s][i][f][t],exit,entrant,incumbent);
-			}
+			  			}
 		    }
 		  fprintf(file2,"%d,%s,%d,%0.16f,%0.16f,%0.16f,%d,%d,%d\n",
 			  s,industry[i],t,tau_applied[i][t],tau_nntr[i][t],exports,nf,exit2,entrant2);
@@ -1563,7 +1855,6 @@ void create_panel_dataset(int reform_flag)
 	}
     }
 
-  //fclose(file);
   fclose(file2);
 
   time(&stop);
@@ -1575,8 +1866,7 @@ void create_panel_dataset(int reform_flag)
 ///////////////////////////////////////////////////////////////////////////////
 // 5. Calibrating TPU probs
 ///////////////////////////////////////////////////////////////////////////////
-double caldata_temp[21];
-double caldata_perm[21];
+double caldata[NT]={0.0};
 int iter=0;
 
 int load_caldata()
@@ -1590,16 +1880,12 @@ int load_caldata()
   else
     {
       int got = 0;
-      for(int t=0; t<21; t++)
+      for(int t=(1974-1971); t<=(2008-1971); t++)
 	{
-	  got += fscanf(file,"%lf",&(caldata_temp[t]));
-	}
-      for(int t=0; t<21; t++)
-	{
-	  got += fscanf(file,"%lf",&(caldata_perm[t]));
+	  got += fscanf(file,"%lf",&(caldata[t]));
 	}
       fclose(file);
-      if(got != 42)
+      if(got != (2008-1974+1))
 	{
 	  printf("Failed to load calibration data!\n");
 	  return 1;
@@ -1612,158 +1898,284 @@ int load_caldata()
   
 }
 
-double calc_coeffs()
+double calc_coeffs(int reform_flag)
 {
   linebreak2();
-  printf("Computing differences between actual and simulated NNTR gap coefficients...\n");
+  printf("Computing differences between actual and simulated NNTR gap coefficients...\n\n");
 
-  printf("\nProbabilities:\n");
-  printf("\tYear: ");
-  for(int t=t_reform; t<t_wto; t++)
+  if(reform_flag==2)
     {
-      printf(" %d ",t+1971);
+      printf("Year:");
+      for(int t=t_reform; t<t_wto; t++)
+	{
+	  printf(" %d ",t+1971);
+	}
+      printf("\nProb:");
+      for(int t=t_reform; t<t_wto; t++)
+	{
+	  printf(" %0.2f",tpu_prob_perm[t]);
+	}
+      printf("\n");
     }
-  printf("\n\tTemp:");
-  for(int t=t_reform; t<t_wto; t++)
+  else if(reform_flag==3)
     {
-      printf(" %0.3f",tpu_prob_temp[t]);
+      printf("P(NNTR-->MFN) = %0.3f\n",tpu_trans_mat[1][2][0]);
+      printf("P(MFN-->NNTR) =");
+      for(int t=t_reform; t<=(2008-1971); t++)
+	{
+	  printf(" %0.2f",tpu_trans_mat[2][1][t]);
+	}
+
     }
-  printf("\n\tPerm:");
-  for(int t=t_reform; t<t_wto; t++)
+  else
     {
-      printf(" %0.3f",tpu_prob_perm[t]);
+      printf("Wrong reform code!\n");
+      return -99;
     }
-  printf("\n");
   
   time_t start, stop;
   time(&start);
 
-  if(solve_policies2_tpu())
-    return -99; 
+  if(reform_flag==2)
+    {
+      if(solve_policies2_tpu())
+	return -99; 
+    }
+  else if(reform_flag==3)
+    {
+      if(solve_policies2_markov())
+	return -99;
+    }
   
-  double expart_rate, exit_rate, new_size;
-  
-  simul2(1,&expart_rate,&exit_rate,&new_size,0);
-  create_panel_dataset(1);
-
-  simul2(2,&expart_rate,&exit_rate,&new_size,0);
-  create_panel_dataset(2);
+  double expart_rate, exit_rate, new_size, avg_5yr_gr;
+  simul2(reform_flag,&expart_rate,&exit_rate,&new_size,&avg_5yr_gr,0);
+  create_panel_dataset(reform_flag);
 
   time_t start2, stop2;
   time(&start2);
   printf("\nProcessing simulated data...\n");
-  if(system("python3 -W ignore ../scripts/proc_simul.py"))
+  char buffer[128];
+  sprintf(buffer,"python3 -W ignore ../scripts/proc_simul.py %d",reform_flag);
+  if(system(buffer))
     return -99;
   time(&stop2);
   printf("\nProcessing complete in %0.0f seconds\n",difftime(stop2,start2));  
-  
+
   if(load_caldata())
     return -99;
 
-  //printf("Coeff errors:\n");
-  double maxdiff = -HUGE_VAL;
-  for(int t=t_reform; t<t_wto; t++)
+  double retval = -HUGE_VAL;
+  if(reform_flag==2)
     {
-      if(fabs(caldata_temp[t-t_reform])>maxdiff)
-	maxdiff = fabs(caldata_temp[t-t_reform]);
-
-      if(fabs(caldata_perm[t-t_reform])>maxdiff)
-	maxdiff = fabs(caldata_perm[t-t_reform]);
-
-      //printf("\t%0.6f %0.6f\n",caldata_temp[t-t_reform],caldata_perm[t-t_reform]);
+      for(int t=t_reform+1; t<=t_wto; t++)
+	{	  
+	  if(fabs(caldata[t])>retval)
+	    retval = fabs(caldata[t]);
+	}
+      
+      printf("Year : ");
+      for(int t=t_reform+1; t<=t_wto; t++)
+	{
+	  printf(" %d ",t+1971);
+	}
+      printf("\nError:");
+      for(int t=t_reform+1; t<=t_wto; t++)
+	{
+	  printf(" %+0.2f",caldata[t]);
+	}
+      printf("\n");
     }
-
-  printf("\nErrors:\n");
-  printf("\tYear: ");
-  for(int t=t_reform; t<t_wto; t++)
+  else
     {
-      printf(" %d ",t+1972);
-    }
-  printf("\n\tTemp:");
-  for(int t=t_reform; t<t_wto; t++)
-    {
-      printf(" %+0.2f",caldata_temp[t-t_reform]);
-    }
-  printf("\n\tPerm:");
-  for(int t=t_reform; t<t_wto; t++)
-    {
-      printf(" %+0.2f",caldata_perm[t-t_reform]);
-    }
-  printf("\n");
+      printf("Errors:\n");
+      retval = -HUGE_VAL;
+      double avg_pre80 = 0.0;
+      for(int t=3; t<=t_reform; t++)
+	{
+	  avg_pre80 += fabs(caldata[t])*fabs(caldata[t]);
+	}
+      avg_pre80 = sqrt(avg_pre80/((double)(t_reform-3+1)));
+      retval= avg_pre80;
+      printf("Avg 1974-1979 = %0.2f\n\n",avg_pre80);
+      
+      for(int t=t_reform+1; t<=(2008-1971); t++)
+	{
+	  printf("%d ",t+1971);
+	}
+      printf("\n");
+      for(int t=t_reform+1; t<t_wto; t++)
+	{
+	  printf("%+0.2f ",caldata[t]);
+	  
+	  if(fabs(caldata[t])>retval)
+	    {
+	      retval = fabs(caldata[t]);
+	    }
+	}
 
+      /*double avg_post01 = 0.0;
+      for(int t=t_wto+1; t<=2008-1971; t++)
+	{
+	  avg_post01 += fabs(caldata[t])*fabs(caldata[t]);
+	}
+      avg_post01 = sqrt(avg_post01/((double)(2008-2002+1)));
+      printf("\n\nAvg 2001-2008 = %0.2f\n",avg_post01);*/
+    }
 
   time(&stop);
-  printf("\nIteration %d complete in %0.0f seconds. Max error = %0.6f\n",iter,difftime(stop,start),maxdiff);
+  printf("\nIteration %d complete in %0.0f seconds. Max error/RMSE = %0.6f\n",iter,difftime(stop,start),retval);
 
-  return maxdiff;
+  return retval;
 }
 
-void update_probs()
+void update_probs(int reform_flag)
 {
-  for(int t=t_reform; t<t_wto; t++)
+  if(reform_flag==2)
     {
-      double err = caldata_temp[t-t_reform];
-      double err2=0;
-      double err3=0;
-      double err4=0;
-      if(t<t_wto-1)
+      for(int t=t_reform; t<t_wto; t++)
 	{
-	  err2 = caldata_temp[t+1-t_reform];
-	}
-      if(t<t_wto-2)
-	{
-	  err3 = caldata_temp[t+2-t_reform];
-	}
-      if(t<t_wto-3)
-	{
-	  err3 = caldata_temp[t+3-t_reform];
-	}
+	  /*
+	    double err = caldata[t];
+	    double err2=0;
+	    double err3=0;
+	    double err4=0;
+	    if(t<t_wto-1)
+	    {
+	    err2 = caldata_temp[t+1];
+	    }
+	    if(t<t_wto-2)
+	    {
+	    err3 = caldata_temp[t+2];
+	    }
+	    if(t<t_wto-3)
+	    {
+	    err3 = caldata_temp[t+3];
+	    }
 	
-      err = err + 0.25*err2 + 0.1*err3 + 0.05*err4;
-      double aerr = fabs(err);
+	    err = err + 0.25*err2 + 0.1*err3 + 0.05*err4;
+	    double aerr = fabs(err);
       
-      if(err>0.0)
+	    if(err>0.0)
+	    {
+	    tpu_prob_temp[t] = tpu_prob_temp[t] * (1.0 + log(1.0+aerr) * tpu_prob_update_speed);
+	    }
+	    else
+	    {
+	    tpu_prob_temp[t] = tpu_prob_temp[t] * (1.0 - log(1.0+aerr) * tpu_prob_update_speed);
+	    }
+	  */
+      
+	  double err = caldata[t+1];
+	  double aerr = fabs(err);
+	  if(err>0.0)
+	    {
+	      tpu_prob_perm[t] = tpu_prob_perm[t] * (1.0 + log(1.0+aerr) * tpu_prob_update_speed);
+	    }
+	  else
+	    {
+	      tpu_prob_perm[t] = tpu_prob_perm[t] * (1.0 - log(1.0+aerr) * tpu_prob_update_speed);
+	    }	
+	}
+      
+      FILE * file = fopen("output/tpuprobs_perm.txt","w");
+      for(int t=t_reform; t<t_wto; t++)
 	{
-	  tpu_prob_temp[t] = tpu_prob_temp[t] * (1.0 + log(1.0+aerr) * tpu_prob_update_speed);
+	  fprintf(file,"%0.16f",tpu_prob_perm[t]);
+	  if(t<t_wto-1)
+	    fprintf(file," ");
+	  else
+	    fprintf(file,"\n");
+	}
+      fclose(file);
+    }
+  else if(reform_flag==3)
+    {
+      // update P(NNTR-->MFN) based on pre-1980 data
+      double avg_pre80 = 0.0;
+      for(int t=3; t<t_reform; t++)
+	{
+	  avg_pre80 += caldata[t];
+	}
+      avg_pre80 = avg_pre80/((double)(t_reform-3));
+      
+      if(avg_pre80>0.0)
+	{
+	  double tmp = tpu_trans_mat[1][2][0] * (1.0+log(1.0-fabs(avg_pre80))*tpu_prob_update_speed);
 	}
       else
 	{
-	  tpu_prob_temp[t] = tpu_prob_temp[t] * (1.0 - log(1.0+aerr) * tpu_prob_update_speed);
+	  tpu_trans_mat[1][2][0] = tpu_trans_mat[1][2][0] * (1.0+log(1.0+fabs(avg_pre80))*tpu_prob_update_speed);
+	}
+      tpu_trans_mat[1][1][0] = 1.0-tpu_trans_mat[1][2][0];
+      tpu_trans_mat[1][0][0] = 0.0;
+      
+      for(int t=1; t<NT; t++)
+	{
+	  tpu_trans_mat[1][2][t] = tpu_trans_mat[1][2][0];
+	  tpu_trans_mat[1][1][t] = tpu_trans_mat[1][1][0];
+	  tpu_trans_mat[1][0][t] = 0.0;
 	}
 
-      err = caldata_perm[t-t_reform];
-      aerr = fabs(err);
-      if(err>0.0)
+      // update P_t(MFN-->NNTR) before 2000 based on annual data from 1980-2001
+      for(int t=t_reform+1; t<=(2008-1971); t++)
 	{
-	  tpu_prob_perm[t] = tpu_prob_perm[t] * (1.0 + log(1.0+aerr) * tpu_prob_update_speed);
-	}
-      else
-	{
-	  tpu_prob_perm[t] = tpu_prob_perm[t] * (1.0 - log(1.0+aerr) * tpu_prob_update_speed);
-	}	
-    }
-  
-  FILE * file = fopen("output/tpuprobs.txt","w");
-  for(int t=t_reform; t<t_wto; t++)
-    {
-      fprintf(file,"%0.16f",tpu_prob_temp[t]);
-      if(t<t_wto-1)
-	fprintf(file," ");
-      else
-	fprintf(file,"\n");
-    }
-  for(int t=t_reform; t<t_wto; t++)
-    {
-      fprintf(file,"%0.16f",tpu_prob_perm[t]);
-      if(t<t_wto-1)
-	fprintf(file," ");
-      else
-	fprintf(file,"\n");
-    }
-  fclose(file);
-}
+	  double err = caldata[t];
+	  double tmp=0.0;
+	  if(err>0.0)
+	    {
+	      tmp = tpu_trans_mat[2][1][t-1] * (1.0 + log(1.0+fabs(err)) * tpu_prob_update_speed);
+	    }
+	  else
+	    {
+	      tmp = tpu_trans_mat[2][1][t-1] * (1.0 - log(1.0+fabs(err)) * tpu_prob_update_speed);
+	    }
 
-int calibrate_probs()
+	  if(tmp<0.95)
+	    {
+	      tpu_trans_mat[2][1][t-1]=tmp;
+	    }
+
+	  tpu_trans_mat[2][2][t-1] = 1.0-tpu_trans_mat[2][1][t-1];
+	  tpu_trans_mat[2][0][t-1]=0.0;
+
+	  if(gsl_isnan(tpu_trans_mat[2][1][t-1]))
+	    {
+	      double x=10;
+	    }
+	}
+
+      for(int t=0; t<t_reform; t++)
+	{
+	  tpu_trans_mat[2][1][t] = tpu_trans_mat[2][1][t_reform];
+	  tpu_trans_mat[2][2][t] = 1.0-tpu_trans_mat[2][1][t];
+	  tpu_trans_mat[2][0][t] = 0.0;
+	}
+      
+      for(int t=(2009-1971); t<NT; t++)
+	{
+	  tpu_trans_mat[2][1][t] = tpu_trans_mat[2][1][2008-1971];
+	  tpu_trans_mat[2][2][t] = tpu_trans_mat[2][2][2008-1971];
+	  tpu_trans_mat[2][0][t] = 0.0;
+	}
+      
+      FILE * file = fopen("output/tpuprobs_markov.txt","w");
+      int cnt=0;
+      for(int t=(1974-1971); t<t_reform; t++)
+	{
+	  cnt++;
+	  fprintf(file,"%0.16f ",tpu_trans_mat[1][2][t]);
+	}
+      for(int t=t_reform; t<=2008-1971; t++)
+	{
+	  cnt++;
+	  fprintf(file,"%0.16f ",tpu_trans_mat[2][1][t]);
+	}
+      fclose(file);
+      printf("cnt = %d\n\n",cnt);
+    }
+  }
+
+int calibrate_probs(int reform_flag)
 {
   printf("Calibrating TPU probabilities to match estimated NNTR gap coefficients...\n");
   
@@ -1775,7 +2187,7 @@ int calibrate_probs()
   do
     {
       iter++;
-      maxdiff = calc_coeffs();
+      maxdiff = calc_coeffs(reform_flag);
 
       if(maxdiff<0)
 	{
@@ -1783,11 +2195,10 @@ int calibrate_probs()
 	  return 1;
 	}
       
-      //printf("\nIter = %d. Max error = %0.6f\n",iter,maxdiff);
       if(maxdiff<coeff_err_tol)
 	break;
 
-      update_probs();
+      update_probs(reform_flag);
     }
   while(iter < max_cal_iter);
 
@@ -1846,20 +2257,19 @@ int det_analysis()
   if(solve_policies2())
     return 1;
 
-  //if(solve_policies2_tpu())
-  //  return 1; 
-
   double expart_rate=0.0;
   double exit_rate=0.0;
   double new_size;
-  simul2(0,&expart_rate,&exit_rate,&new_size,1);
+  double avg_5yr_gr;
+  
+  simul2(0,&expart_rate,&exit_rate,&new_size,&avg_5yr_gr,1);
   create_panel_dataset(0);
 
-  //simul2(1,&expart_rate,&exit_rate,&new_size,0);
-  //create_panel_dataset(1);
+  simul2(1,&expart_rate,&exit_rate,&new_size,&avg_5yr_gr,0);
+  create_panel_dataset(1);
 
-  //simul2(2,&expart_rate,&exit_rate,&new_size,0);
-  //create_panel_dataset(2);
+  simul2(2,&expart_rate,&exit_rate,&new_size,&avg_5yr_gr,0);
+  create_panel_dataset(2);
 
   time(&stop);
   printf("\nAnalysis complete! Runtime = %0.0f seconds.\n",
@@ -1884,10 +2294,11 @@ int main()
       return 1;
 
   // calibrate TPU probs
-  linebreak();	  
-  if(calibrate_probs())
-      return 1;
-
+  //linebreak();
+  //if(calibrate_probs(3))
+  // return 1;
+  //calc_coeffs(3);
+  //update_probs(3);
   
   // finish program
   linebreak();  

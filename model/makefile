@@ -5,11 +5,11 @@ LDFLAGS = -fopenmp -lgsl -lgslcblas -lm -ldl -lgomp -g -O3
 EXDIR = bin
 ODIR = src/obj
 
-_OBJ = model.o
+_OBJ = model_v2.o
 OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
 
 $(ODIR)/%.o: src/%.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)
 
-model: src/obj/model.o
+model: src/obj/model_v2.o
 	$(CC) -o $(EXDIR)/$@ $^ $(CFLAGS) $(LDFLAGS)
