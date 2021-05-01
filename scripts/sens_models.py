@@ -56,19 +56,20 @@ def wavg(group, avg_name, weight_name):
     w = group[weight_name]
     return (d * w).sum() / w.sum()
 
-fnames = ['simul_agg_det0_baseline.csv','simul_agg_det1_baseline.csv','simul_agg_det2_baseline.csv']
-slabs = ['1980 reform anticipated','1980 reform unanticipated','1980 reform never occurs']
+fnames = ['simul_agg_det0_baseline.csv','simul_agg_det0_sunkcost.csv',
+          'simul_agg_det0_calvo.csv','simul_agg_tpu_markov_baseline.csv',
+          'simul_agg_tpu_markov_sunkcost.csv','simul_agg_tpu_markov_calvo.csv']
+slabs = ['No TPU (baseline)','No TPU (sunk cost)','No TPU (Calvo)',
+             'TPU (baseline)','TPU (sunk cost)','TPU (Calvo)']
 
 ##################################################
 # load data
-print('\tloading data')
 
-def load_data(reform_flag=0):
+def load_data(fname):
 
-    f = fnames[reform_flag]
     data = None
     try:
-        data = pd.read_csv(inpath + f)
+        data = pd.read_csv(inpath + fname)
     except:
         return None
 
@@ -81,6 +82,7 @@ def load_data(reform_flag=0):
     d01['spread'] = np.log((1+d01.tau_nntr)/(1+d01.tau_applied))
     d01 = d01[['i','spread']].drop_duplicates()
     data = pd.merge(left=data,right=d01,how='left',on=['i'])
+
     #data['spread'] = np.log(1+data.gap)
 
     dlast = data.loc[data.y==data.y.max(),:].reset_index(drop=True)
@@ -103,18 +105,16 @@ def load_data(reform_flag=0):
     
     return data
 
-df = [load_data(0),load_data(1), load_data(2)]
+df = [load_data(fname) for fname in fnames]
 
 #####################################################
 
-# sum across industries for each simulation
+# sum.average across industries
+
 df2a = [x.groupby(['y'])[['exports','num_exporters']].sum().reset_index() for x in df]
-
 df2b = [x.groupby(['y'])['tau_applied'].mean().reset_index() for x in df]
-
 df2 = [pd.merge(left=a,right=b,how='left',on=['y']) for a,b in zip(df2a,df2b)]
 
-# average across simulations
 for x in df2:
     x['nf_pct_chg'] = x['num_exporters'].transform(pct_chg)
     x['exports_pct_chg'] = x['exports'].transform(pct_chg)
@@ -124,8 +124,12 @@ for x in df2:
 fig,axes = plt.subplots(1,1,figsize=(4,4))
 
 lns=[]
-for i in [0,1,2]:
+for i in range(3):
     ln = axes.plot(df2[i].y,np.log(df2[i].exports_pct_chg),color=colors[i],alpha=0.7,label=slabs[i])
+    lns=lns+ln
+
+for i in range(3):
+    ln = axes.plot(df2[3+i].y,np.log(df2[3+i].exports_pct_chg),color=colors[i],linestyle='--',alpha=0.7,label=slabs[3+i])
     lns=lns+ln
 
 ax2=axes.twinx()
@@ -134,35 +138,42 @@ lns=lns+ln
 
 axes.axvline(NR,color='black',linestyle='--',linewidth=1,alpha=0.7)
 axes.axvline(NU,color='black',linestyle='--',linewidth=1,alpha=0.7)
-axes.set_ylabel('Log exports (1974 = 0)')
-ax2.set_ylabel('Avg. tariff')
 axes.set_xlim(1974,2008)
 axes.set_ylim(-0.1,2)
+axes.set_ylabel('Log exports (1974=0)')
+ax2.set_ylabel('Avg. tariff')
 
 labs = [l.get_label() for l in lns]
 axes.legend(lns,labs,loc='lower right',prop={'size':6})
 fig.subplots_adjust(hspace=0.2,wspace=0.25)
-plt.savefig(outpath + 'model_fig_agg_trade_sensitivity_deterministic.pdf',bbox_inches='tight')
+plt.savefig(outpath + 'model_fig_agg_trade_sensitivity_models.pdf',bbox_inches='tight')
 
 time = lns[0].get_xdata()
-ex_base = lns[0].get_ydata()
-ex_mit = lns[1].get_ydata()
-ex_no1980 = lns[2].get_ydata()
+ex_base_notpu = lns[0].get_ydata()
+ex_sunk_notpu = lns[1].get_ydata()
+ex_calvo_notpu = lns[2].get_ydata()
+ex_base_tpu = lns[3].get_ydata()
+ex_sunk_tpu = lns[4].get_ydata()
+ex_calvo_tpu = lns[5].get_ydata()
 tar = lns[-1].get_ydata()
 df_fig = pd.DataFrame({'Year':time,
-                       'Agg. exports, 1980 reform anticipated (1974=1)':ex_base,
-                       'Agg. exports, 1980 reform not anticipated (1974=1)':ex_mit,
-                       'Agg. exports, 1980 reform never happens (1974=1)':ex_no1980,
+                       'Agg. exports, baseline, no TPU (1974=1)':ex_base_notpu,
+                       'Agg. exports, sunk cost, no TPU (1974=1)':ex_sunk_notpu,
+                       'Agg. exports, Calvo, no TPU (1974=1)':ex_calvo_notpu,
+                       'Agg. exports, baseline, TPU (1974=1)':ex_base_tpu,
+                       'Agg. exports, sunk cost,TPU (1974=1)':ex_sunk_tpu,
+                       'Agg. exports, Calvo, TPU (1974=1)':ex_calvo_tpu,
                        'Avg. tariff':tar})
-df_fig.to_csv('model_fig_agg_trade_sensitivity_deterministic.csv',index=False)
+df_fig.to_csv('model_fig_agg_trade_sensitivity_models.csv',index=False)
 
 plt.close('all')
+
 
 ###################################################
 
 df = [df_[(df_.y>=1974)&(df_.y<=2008)].reset_index(drop=True) for df_ in df]
 
-df2 = [df_.loc[(df_.exports2>1e-8) & (df_.exports2.notna()) & (df_.exports2<99999)] for df_ in df]
+df2 = [df_.loc[(df_.exports2>1e-8)] for df_ in df]
 formula = 'np.log(exports2) ~ C(y) + C(y):spread'
 res1 = [smf.ols(formula=formula,data=df_).fit(cov_type='HC0') for df_ in df2]
 
@@ -187,13 +198,14 @@ effects1, ci1 = effects(res1)
 
 actual = np.genfromtxt(outpath +'tpu_coeffs.txt')
 
-
 fig,ax = plt.subplots(1,1,figsize=(4,4))
 
 ax.plot(range(1974,2009),actual,color=colors[3],marker='o',markersize=3,alpha=0.8,label='Data')
 
-for i in [0,1,2]:
+for i in range(3):
     ax.plot(years,effects1[i],color=colors[i],alpha=0.8,label=slabs[i])
+for i in range(3):
+    ax.plot(years,effects1[3+i],color=colors[i],alpha=0.8,label=slabs[3+i],linestyle='--')
 
 ax.legend(loc='lower right',prop={'size':6})
 ax.set_xlim(1974,2008)
@@ -202,14 +214,15 @@ ax.set_yticks([-15,-10,-5,0])
 ax.axhline(0,color='black',linestyle='-',linewidth=1,alpha=1,zorder=1)
 ax.axvline(NR,color='black',linestyle=':',linewidth=1,alpha=0.7,zorder=2)
 ax.axvline(NU,color='black',linestyle=':',linewidth=1,alpha=0.7,zorder=3)
-plt.savefig(outpath + 'model_fig_gap_coefficients_sensitivity_deterministic.pdf',bbox_inches='tight')
+plt.savefig(outpath + 'model_fig_gap_coefficients_sensitivity_models.pdf',bbox_inches='tight')
 plt.close('all')
 
 df_fig = pd.DataFrame({'Year':range(1974,2009),
-                       '1980 reform anticipated (1974=1)':effects1[0],
-                       '1980 reform not anticipated (1974=1)':effects1[1],
-                       '1980 reform never happens (1974=1)':effects1[2]})
-df_fig.to_csv('model_fig_gap_coefficients_sensitivity_deterministic.csv',index=False)
-
-
-
+                       'Data':actual,
+                       'Baseline, no TPU':effects1[0],
+                       'Sunk cost, no TPU':effects1[1],
+                       'Calvo, no TPU':effects1[2],
+                       'Baseline, TPU':effects1[3],
+                       'Sunk cost, TPU':effects1[4],
+                       'Calvo, TPU':effects1[5]})
+df_fig.to_csv('model_fig_gap_coefficients_sensitivity_models.csv',index=False)
