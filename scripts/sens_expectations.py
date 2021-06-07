@@ -51,7 +51,7 @@ def wavg(group, avg_name, weight_name):
     return (d * w).sum() / w.sum()
 
 fnames = ['simul_agg_det0_baseline.csv','simul_agg_tpu_markov_baseline.csv','simul_agg_tpu_markov_permtpu.csv']
-slabs = ['No TPU','TPU (baseline)','TPU (MIT shocks)']
+slabs = ['No TPU','TPU (benchmark)','TPU (surprises)']
 
 ##################################################
 # load data
@@ -117,20 +117,26 @@ for x in df2:
 fig,axes = plt.subplots(1,1,figsize=(4,4))
 
 lns=[]
-for i in range(3):
-    ln = axes.plot(df2[i].y,np.log(df2[i].exports_pct_chg),color=colors[i],alpha=0.7,label=slabs[i])
-    lns=lns+ln
 
-ax2=axes.twinx()
-ln = ax2.plot(df2[0].y,df2[0].tau_applied,color=colors[4],alpha=0.7,label='Avg. tariff (right scale)')
+ln = axes.plot(df2[0].y,np.log(df2[0].exports_pct_chg),color=colors[0],alpha=0.7,label=slabs[0],linestyle='--')
 lns=lns+ln
+
+ln = axes.plot(df2[1].y,np.log(df2[1].exports_pct_chg),color=colors[2],alpha=0.7,label=slabs[1],linestyle='-')
+lns=lns+ln
+
+ln = axes.plot(df2[2].y,np.log(df2[2].exports_pct_chg),color=colors[3],alpha=0.7,label=slabs[2],linestyle='-',marker='x',markersize=3)
+lns=lns+ln
+
+#ax2=axes.twinx()
+#ln = ax2.plot(df2[0].y,df2[0].tau_applied,color=colors[4],alpha=0.7,label='Avg. tariff (right scale)')
+#lns=lns+ln
 
 axes.axvline(NR,color='black',linestyle='--',linewidth=1,alpha=0.7)
 axes.axvline(NU,color='black',linestyle='--',linewidth=1,alpha=0.7)
 axes.set_xlim(1974,2008)
-axes.set_ylim(-0.1,2)
-axes.set_ylabel('Log exports (1974=0)')
-ax2.set_ylabel('Avg. tariff')
+axes.set_ylim(-0.1,2.2)
+#axes.set_ylabel('Log exports (1974=0)')
+#ax2.set_ylabel('Avg. tariff')
 
 labs = [l.get_label() for l in lns]
 axes.legend(lns,labs,loc='lower right',prop={'size':6})
@@ -141,12 +147,12 @@ time = lns[0].get_xdata()
 ex_base_notpu = lns[0].get_ydata()
 ex_base_tpu = lns[1].get_ydata()
 ex_permtpu = lns[2].get_ydata()
-tar = lns[-1].get_ydata()
+#tar = lns[-1].get_ydata()
 df_fig = pd.DataFrame({'Year':time,
                        'Agg. exports no TPU (1974=1)':ex_base_notpu,
                        'Agg. exports TPU baseline (1974=1)':ex_base_tpu,
-                       'Agg. exports TPU MIT shocks (1974=1)':ex_permtpu,
-                       'Avg. tariff':tar})
+                       'Agg. exports TPU MIT shocks (1974=1)':ex_permtpu})
+
 df_fig.to_csv('model_fig_agg_trade_sensitivity_expectations.csv',index=False)
 
 plt.close('all')
@@ -157,13 +163,13 @@ plt.close('all')
 
 fig,axes = plt.subplots(1,1,figsize=(4,4))
 
-ln1 = axes.plot(df2[0].y,df2[0].tau_applied,color=colors[2],alpha=0.7,label='Mean')
+ln1 = axes.plot(df2[0].y,df2[0].tau_applied,color=colors[1],alpha=0.7,label='Mean applied tariff',marker='o',markersize=3)
 
-ln2 = axes.plot(df2[0].y,df2[0].pv_tau-1,color=colors[0],alpha=0.7,label='PV (No TPU)')
+ln2 = axes.plot(df2[0].y,df2[0].pv_tau-1,color=colors[0],alpha=0.7,label='EPV (No TPU)',linestyle='--')
 
-ln3 = axes.plot(df2[1].y,df2[1].pv_tau-1,color=colors[1],alpha=0.7,label='PV (benchmark)')
+ln3 = axes.plot(df2[1].y,df2[1].pv_tau-1,color=colors[2],alpha=0.7,label='EPV (benchmark)')
 
-ln4 = axes.plot(df2[2].y,df2[2].pv_tau-1,color=colors[3],alpha=0.7,label='PV (surprises)')
+ln4 = axes.plot(df2[2].y,df2[2].pv_tau-1,color=colors[3],alpha=0.7,label='EPV (surprises)',marker='x',markersize=3)
 
 axes.axvline(NR,color='black',linestyle='--',linewidth=1,alpha=0.7)
 axes.axvline(NU,color='black',linestyle='--',linewidth=1,alpha=0.7)
@@ -174,7 +180,7 @@ axes.set_ylim(0,0.35)
 
 lns = ln1+ln2+ln3+ln4
 labs = [l.get_label() for l in lns]
-axes.legend(lns,labs,loc='lower right',prop={'size':6})
+axes.legend(lns,labs,loc='upper right',prop={'size':6})
 fig.subplots_adjust(hspace=0.2,wspace=0.25)
 plt.savefig(outpath + 'model_fig_pv_tariff_sensitivity_expectations.pdf',bbox_inches='tight')
 
@@ -275,17 +281,25 @@ cnt=0
 for probs in probs_all:
     p1 = probs.copy()
     p1[NR-1-1973:]=p1[NR-1-1973]
-    ax.plot(t,p1*np.ones(len(t)),color=colors[cnt+1],linestyle='--',alpha=0.7,label=r'$P(NNTR\rightarrow MFN)$, '+suffs[cnt])
+
+    if(cnt==0):
+        ax.plot(t,p1*np.ones(len(t)),color=colors[0],linestyle='--',alpha=0.7,label=r'NNTR to MFN')
+        
     p2 = probs.copy()
     p2[0:(NR-1973)] = probs[(NR-1973)]
-    ax.plot(t,p2,color=colors[cnt+1],alpha=0.7,label=r'$P(MFN\rightarrow NNTR)$, '+suffs[cnt])
+
+    if(cnt==0):
+        ax.plot(t,p2,color=colors[2],alpha=0.7,label=r'MFN to NNTR, benchmark')
+    else:
+        ax.plot(t,p2,color=colors[3],alpha=0.7,label=r'MFN to NNTR, surprises',marker='x',markersize=3)
+                
     p1_out.append(p1*np.ones(len(t)))
     p2_out.append(p2)
     cnt = cnt+1
     
 ax.axvline(NR,color='black',linestyle=':',linewidth=1,alpha=0.7)
 ax.axvline(NU,color='black',linestyle=':',linewidth=1,alpha=0.7)
-ax.set_xlim(1974,2008)
+ax.set_xlim(1974,2007)
 ax.legend(loc='upper right',prop={'size':6}) 
 fig.subplots_adjust(hspace=0.2,wspace=0.25)
 plt.savefig('model_fig_probabilities_sens_expectations.pdf',bbox_inches='tight')

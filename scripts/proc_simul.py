@@ -181,7 +181,7 @@ plt.close('all')
 
 fig,axes = plt.subplots(1,1,figsize=(4,4))
 
-ln1 = axes.plot(df2[0].y,df2[0].tau_applied,color=colors[2],alpha=0.7,label='Mean')
+#ln1 = axes.plot(df2[0].y,df2[0].tau_applied,color=colors[2],alpha=0.7,label='Mean')
 
 ln2 = axes.plot(df2[0].y,df2[0].pv_tau-1,color=colors[0],alpha=0.7,label='PV (No TPU)')
 ln3 = axes.plot(df2[1].y,df2[1].pv_tau-1,color=colors[1],alpha=0.7,label='PV (TPU)')
@@ -290,9 +290,9 @@ print('\tplotting coefficients')
 
 fig,ax = plt.subplots(1,1,figsize=(4,4))
 ax.plot(range(1974,2009),actual,color=colors[2],marker='o',markersize=3,alpha=0.8,label='Data')
-ax.plot(range(1974,2009),actual2,color=colors[3],linestyle='--',alpha=0.8,label='Data (smoothed)')
+#ax.plot(range(1974,2009),actual2,color=colors[3],linestyle='--',alpha=0.8,label='Data (smoothed)')
 ax.plot(years,effects1[1],color=colors[1],alpha=0.8,label='TPU')
-ax.plot(years,effects1[0],color=colors[0],alpha=0.8,label='No TPU')
+ax.plot(years,effects1[0],color=colors[0],alpha=0.8,label='No TPU',linestyle='--')
 ax.legend(loc='lower right',prop={'size':6})
 ax.set_xlim(1974,2008)
 ax.set_ylim(-16,2)

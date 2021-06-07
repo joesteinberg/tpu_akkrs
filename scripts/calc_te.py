@@ -67,6 +67,8 @@ def load_data(reform_flag=0):
         fname = 'simul_agg_det2_baseline.csv'
     elif(reform_flag==4):
         fname = 'simul_agg_det4_baseline.csv' 
+    elif(reform_flag==5):
+        fname = 'simul_agg_det5_baseline.csv' 
     elif(reform_flag==3):
         fname = 'simul_agg_tpu_markov_baseline.csv' 
 
@@ -109,7 +111,18 @@ def load_data(reform_flag=0):
     return data
        
 # load data and aggregate it
-df = [load_data(0),load_data(1),load_data(4),load_data(3),load_data(2)]
+df = [load_data(0),load_data(1),load_data(4),load_data(3),load_data(2),load_data(5)]
+df[4].tau_applied = df[4].tau_nntr
+
+def log_chg(x):
+        return (np.log(x) - np.log(x.iloc[7]))
+
+def log_chg_1p(x):
+        return (np.log(1+x) - np.log(1+x.iloc[7]))
+    
+for df_ in df:
+    df_['exports_log_chg'] = df_.groupby('i')['exports'].transform(lambda x: log_chg(x))
+    df_['tau_log_chg'] = df_.groupby('i')['tau_applied'].transform(lambda x: log_chg_1p(x))
 
 
 #######################################
@@ -128,6 +141,10 @@ print('\testimating cross sectional regression')
 df2b = [df_.loc[(df_.exports>1e-8) & (df_.y==2070)] for df_ in df]
 formula = 'np.log(exports) ~ np.log(1+tau_applied)'
 eres1b = [smf.ols(formula=formula,data=df_).fit(cov_type='HC0') for df_ in df2b]
+
+df2c = [df_.loc[(df_.exports>1e-8) & (df_.exports_log_chg<10000) & (df_.tau_log_chg>-10000) & (df_.y==2070)] for df_ in df]
+formula = 'exports_log_chg ~ tau_log_chg'
+eres1c = [smf.ols(formula=formula,data=df_).fit(cov_type='HC0') for df_ in df2c]
 
 #df2 = [df_.loc[(df_.exports>1e-8) & (df_.exports_lag>1.0e-8)] for df_ in df]
 #formula = 'np.log(exports) ~ np.log(1+tau_applied) + np.log(exports_lag) + C(i)'
@@ -233,5 +250,9 @@ file.write('\\normalsize\n')
 file.write('\\end{table}\n')
 
 file.close()
+
+#####################################################################################
+
+
     
 

@@ -1201,6 +1201,8 @@ int update_dist(int i, int t, int reform_flag)
 	    {
 	      if(reform_flag==0)
 		gex_ = gex_ref_det[i][iz][is][t];
+	      else if(reform_flag==5)
+		gex_ = gex_ref_det[i][iz][is][NT-1];
 	      else if(reform_flag<3)
 		gex_ = gex_nntr[i][iz][is];
 	      else
@@ -1222,6 +1224,8 @@ int update_dist(int i, int t, int reform_flag)
 		  gex_ = gex_ref_det[i][iz][is][t];
 		    //}
 		}
+	      else if(reform_flag==5)
+		gex_ = gex_ref_det[i][iz][is][NT-1];
 	      else if(reform_flag == 2)
 		{
 		  gex_ = gex_nntr[i][iz][is];
@@ -1295,8 +1299,10 @@ void calc_trans_vars(int i, int t, int reform_flag)
   double total_exports=0.0;
   
   double tau_hat_ = pow(tau_applied[i][t],-theta);
-  
-  if(t<t_reform || reform_flag==2)
+
+  if(reform_flag==5)
+    tau_hat_= pow(tau_applied[i][NT-1],-theta);
+  else if(t<t_reform || reform_flag==2)
     tau_hat_ = pow(tau_nntr[i],-theta);
   else if(t==t_reform && reform_flag != 2)
     tau_hat_ = 0.5*pow(tau_applied[i][t],-theta) +
@@ -1328,6 +1334,12 @@ void calc_trans_vars(int i, int t, int reform_flag)
 
   exports[i][t] = total_exports;
   nf[i][t] = expart_rate;
+
+  if(t>t_wto+30 && exports[i][t]/exports[i][t-1]<-0.05)
+    {
+      printf("Error!!\n");
+    }
+
   
   return;
 }
@@ -1336,7 +1348,7 @@ void calc_pv_tau(int reform_flag)
 {
   for(int i=0; i<NI; i++)
     {
-      if(reform_flag<2)
+      if(reform_flag<2 || reform_flag==5)
 	{
 	  pv_tau[i][NT-1] = tau_applied[i][NT-1]/(1.0-Q);
 	
@@ -1533,6 +1545,10 @@ void do_trans_dyn(int reform_flag)
   else if(reform_flag==4)
     {
       snprintf(fname,128,"output/simul_agg_det4_%s.csv",suffix);
+    }
+  else if(reform_flag==5)
+    {
+      snprintf(fname,128,"output/simul_agg_det5_%s.csv",suffix);
     }
   else if(reform_flag==3)
     {
@@ -2038,14 +2054,14 @@ int setup(int argc, char * argv[])
 	}
       else
 	{
-	  printf("Invalid command-line argument: %s",argv[2]);
+	  printf("Invalid command-line argument: %s\n",argv[2]);
 	  return 1;
 
 	}
     }
   else if(argc>2)
     {
-      printf("Wrong number of command-line arguments: %d",argc);
+      printf("Wrong number of command-line arguments: %d\n",argc);
       return 1;
     }
 
@@ -2090,6 +2106,7 @@ int det_analysis()
       do_trans_dyn(1);
       do_trans_dyn(2);
       do_trans_dyn(4);
+      do_trans_dyn(5);
     }
 
   time(&stop);
@@ -2116,7 +2133,7 @@ int main(int argc, char * argv[])
 
   // calibrate TPU probs
   linebreak();
-  if(calvo==0 && sunk_cost==0)
+  if(0 && calvo==0 && sunk_cost==0)
     {
       if(calibrate_probs(3))
 	return 1;
