@@ -79,12 +79,33 @@ elif(len(sys.argv)>1 and sys.argv[1]=='-inv'):
     probs = np.genfromtxt(inpath + 'tpuprobs_markov_inv.txt')
     suff='_alt_coeffs_inv'
     suff2='_inv'
+elif(len(sys.argv)>1 and sys.argv[1]=='-sitc68'):
+    actual = np.genfromtxt(outpath +'tpu_coeffs_sitc68.txt')
+    probs = np.genfromtxt(inpath + 'tpuprobs_markov_sitc68.txt')
+    suff='_sitc68'
+    suff2='_sitc68'
+elif(len(sys.argv)>1 and sys.argv[1]=='-sitc7'):
+    actual = np.genfromtxt(outpath +'tpu_coeffs_sitc7.txt')
+    probs = np.genfromtxt(inpath + 'tpuprobs_markov_sitc7.txt')
+    suff='_sitc7'
+    suff2='_sitc7'
+elif(len(sys.argv)>1 and sys.argv[1]=='-ci_lower'):
+    actual = np.genfromtxt(outpath +'tpu_coeffs_ci_lower.txt')
+    probs = np.genfromtxt(inpath + 'tpuprobs_markov_ci_lower.txt')
+    suff='_ci_lower'
+    suff2='_ci_lower'
+elif(len(sys.argv)>1 and sys.argv[1]=='-ci_upper'):
+    actual = np.genfromtxt(outpath +'tpu_coeffs_ci_upper.txt')
+    probs = np.genfromtxt(inpath + 'tpuprobs_markov_ci_upper.txt')
+    suff='_ci_upper'
+    suff2='_ci_upper'
 
+    
 def load_data(reform_flag=0):
 
     fname=''
     if(reform_flag==0):
-        fname = 'simul_agg_det0_baseline.csv' 
+        fname = 'simul_agg_det0'+suff2+'.csv' 
     elif(reform_flag==3):
         fname = 'simul_agg_tpu_markov'+suff2+'.csv' 
 
@@ -123,6 +144,14 @@ def load_data(reform_flag=0):
     data['delta_exports'] = np.log(data.exports) - np.log(data.exports_lag)
     data['delta_tau'] = np.log(1+data.tau_applied) - np.log(1+data.tau_lag)
     data['delta_nf'] = np.log(data.num_exporters) - np.log(data.nf_lag)
+
+    data['industry'] = data['i'].astype(str).str[0:1]
+    if(suff=='_sitc7'):
+        data = data[data.industry=='7']
+        data.reset_index(inplace=True,drop=True)
+    elif(suff=='_sitc68'):
+        data = data[(data.industry=='6') | (data.industry=='8')]
+        data.reset_index(inplace=True,drop=True)
     
     return data
        
@@ -216,16 +245,31 @@ plt.close('all')
 #######################################
 # regressions
 
-if len(sys.argv)>1 and sys.argv[1]=='-calc_te':
+#df = [df_[(df_.y>=1974)&(df_.y<=2008)].reset_index(drop=True) for df_ in df]
 
+#if len(sys.argv)>1 and sys.argv[1]=='-calc_te':
+if(len(sys.argv)>1 and '-calc_te' in sys.argv):
+    
     print('\testimating trade elasticities via ECM')
+    print(df[0].y.max())
+
+    SR_true = -2.3
+    LR_true = -8.07
+
+    if(suff2=='_sitc68'):
+        SR_true = -2.41
+        LR_true = -7.32
+    elif(suff2=='_sitc7'):
+        SR_true = -3.75
+        LR_true = -17.61
 
     df2 = [df_.loc[(df_.exports>1e-8) & (df_.exports_lag>1.0e-8)] for df_ in df]
     formula = 'delta_exports ~ np.log(1+tau_lag) + np.log(exports_lag) + delta_tau + C(i)'
     eres3 = smf.ols(formula=formula,data=df2[1]).fit(cov_type='HC0')
 
     print("\tSR\tLR")
-    print("Markov  %0.3f\t%0.3f" % (eres3.params['delta_tau'],-eres3.params['np.log(1 + tau_lag)']/eres3.params['np.log(exports_lag)']))
+    print("Model  %0.3f\t%0.3f" % (eres3.params['delta_tau'],-eres3.params['np.log(1 + tau_lag)']/eres3.params['np.log(exports_lag)']))
+    print("Data   %0.3f\t%0.3f" % (SR_true,LR_true))
 
 
 #######################################
@@ -295,7 +339,7 @@ ax.plot(years,effects1[1],color=colors[1],alpha=0.8,label='TPU')
 ax.plot(years,effects1[0],color=colors[0],alpha=0.8,label='No TPU',linestyle='--')
 ax.legend(loc='lower right',prop={'size':6})
 ax.set_xlim(1974,2008)
-ax.set_ylim(-16,2)
+#ax.set_ylim(-16,2)
 ax.set_yticks([-15,-10,-5,0])
 ax.axhline(0,color='black',linestyle='-',linewidth=1,alpha=1,zorder=1)
 ax.axvline(NR,color='black',linestyle=':',linewidth=1,alpha=0.7,zorder=2)
